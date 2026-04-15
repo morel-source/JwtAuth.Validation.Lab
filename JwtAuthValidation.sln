@@ -1,0 +1,28 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "JwtAuth.Validation.Server", "JwtAuth.Validation.Server\JwtAuth.Validation.Server.csproj", "{47E6B92F-4A84-48DE-8BE4-2F0237010EF8}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "JwtAuth.Simulator", "JwtAuth.Simulator\JwtAuth.Simulator.csproj", "{A668B28C-3FB1-4BFA-A638-A49DDEB7D7A3}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "JwtAuth.Shared", "JwtAuth.Shared\JwtAuth.Shared.csproj", "{CF0AF9F4-276F-440D-B137-BCDB6197B442}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{47E6B92F-4A84-48DE-8BE4-2F0237010EF8}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{47E6B92F-4A84-48DE-8BE4-2F0237010EF8}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{47E6B92F-4A84-48DE-8BE4-2F0237010EF8}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{47E6B92F-4A84-48DE-8BE4-2F0237010EF8}.Release|Any CPU.Build.0 = Release|Any CPU
+		{A668B28C-3FB1-4BFA-A638-A49DDEB7D7A3}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{A668B28C-3FB1-4BFA-A638-A49DDEB7D7A3}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{A668B28C-3FB1-4BFA-A638-A49DDEB7D7A3}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{A668B28C-3FB1-4BFA-A638-A49DDEB7D7A3}.Release|Any CPU.Build.0 = Release|Any CPU
+		{CF0AF9F4-276F-440D-B137-BCDB6197B442}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{CF0AF9F4-276F-440D-B137-BCDB6197B442}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{CF0AF9F4-276F-440D-B137-BCDB6197B442}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{CF0AF9F4-276F-440D-B137-BCDB6197B442}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+EndGlobal
