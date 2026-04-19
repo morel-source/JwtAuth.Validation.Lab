@@ -1,6 +1,5 @@
 using System.Net.Sockets;
 using System.Text;
-using System.Threading.Channels;
 using JwtAuth.Shared;
 using JwtAuth.Shared.Validator;
 using Microsoft.Extensions.Hosting;
@@ -9,53 +8,72 @@ using Microsoft.Extensions.Options;
 
 namespace JwtAuth.Validation.Server;
 
-public class Server(
+public sealed class Server(
     ILogger<Server> logger,
     IOptions<TcpOptions> tcpOptions,
-    IJwtValidator jwtValidator) : BackgroundService
+    IJwtValidator jwtValidator,
+    ConnectionManager connectionManager
+) : BackgroundService
 {
-    private readonly Channel<string> _channel = Channel.CreateUnbounded<string>();
-
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         var listener = TcpListener.Create(tcpOptions.Value.ListeningPort);
         listener.Start();
         logger.LogInformation("Validator Server listening on port {Port}...", tcpOptions.Value.ListeningPort);
 
-        _ = Task.Run(async () => await ValidateToken(stoppingToken), stoppingToken);
-
         while (!stoppingToken.IsCancellationRequested)
         {
-            var client = await listener.AcceptTcpClientAsync(stoppingToken);
-
-            _ = Task.Run(async () =>
-            {
-                using (client)
-                {
-                    var stream = client.GetStream();
-                    var buffer = new byte[2048];
-                    var bytesRead = await stream.ReadAsync(buffer, stoppingToken);
-
-                    if (bytesRead > 0)
-                    {
-                        var token = Encoding.UTF8.GetString(buffer, 0, bytesRead);
-                        await _channel.Writer.WriteAsync(token, stoppingToken);
-                    }
-                }
-            }, stoppingToken);
+            var client = await listener.AcceptTcpClientAsync(stoppingToken).ConfigureAwait(false);
+            _ = Task.Run(() => HandleClientConnection(client, stoppingToken), stoppingToken);
         }
     }
 
-    private async Task ValidateToken(CancellationToken cancellationToken = default)
+    private async Task HandleClientConnection(TcpClient client, CancellationToken stoppingToken)
     {
-        await foreach (var token in _channel.Reader.ReadAllAsync(cancellationToken))
+        string? deviceId = null;
+        try
         {
-            jwtValidator.TryValidateToken(token, out var barcode);
+            var stream = client.GetStream();
+            var buffer = new byte[2048];
 
-            if (!string.IsNullOrEmpty(barcode) && barcode != "Unknown")
+            var bytesRead = await stream.ReadAsync(buffer, stoppingToken).ConfigureAwait(false);
+            if (bytesRead == 0) return;
+
+            var token = Encoding.UTF8.GetString(buffer, 0, bytesRead);
+
+            var result = jwtValidator.TryValidateToken(token);
+
+            if (result.IsSuccess)
             {
-                logger.LogDebug("Background processing completed for Device: {Barcode}", barcode);
+                deviceId = result.DeviceId;
+                await connectionManager.RegisterConnection(deviceId, client, stoppingToken).ConfigureAwait(false);
+
+                logger.LogInformation("Device {Id} authenticated and session started.", deviceId);
+
+                while (await stream.ReadAsync(buffer, stoppingToken).ConfigureAwait(false) > 0)
+                {
+                    // stay the connection open
+                }
             }
+            else
+            {
+                await connectionManager.ConnectionAuthFailed(result.DeviceId, result.Reason, stoppingToken)
+                    .ConfigureAwait(false);
+                client.Dispose();
+            }
+        }
+        catch (Exception ex)
+        {
+            logger.LogDebug("Session ended for {Id}: {Msg}", deviceId ?? "unknown", ex.Message);
+        }
+        finally
+        {
+            if (deviceId != null)
+            {
+                await connectionManager.UnregisterConnection(deviceId, stoppingToken).ConfigureAwait(false);
+            }
+
+            client.Dispose();
         }
     }
 }

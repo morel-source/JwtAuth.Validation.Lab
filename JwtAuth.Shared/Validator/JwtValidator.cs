@@ -7,19 +7,36 @@ using Microsoft.IdentityModel.Tokens;
 
 namespace JwtAuth.Shared.Validator;
 
-public class JwtValidator(
+public sealed class JwtValidator(
     ILogger<JwtValidator> logger,
     IOptions<JwtOptions> options
 ) : IJwtValidator
 {
+    private static readonly JwtSecurityTokenHandler TokenHandler = new();
     private readonly byte[] _keyBytes = Encoding.ASCII.GetBytes(options.Value.Key);
+    private const int MaxTokenLength = 2048;
 
-    public void TryValidateToken(string token, out string deviceBarcode)
+    public ValidationResult TryValidateToken(string token)
     {
-        deviceBarcode = string.Empty;
+        string deviceId = "Unknown";
+
+        if (string.IsNullOrWhiteSpace(token) || token.Length > MaxTokenLength)
+        {
+            logger.LogWarning("[FAILED] Token invalid length. Request rejected.");
+            return new ValidationResult(deviceId, IsSuccess: false, "Token invalid length");
+        }
+
+        if (TokenHandler.CanReadToken(token))
+        {
+            var jwtToken = TokenHandler.ReadJwtToken(token);
+            var deviceClaim =
+                jwtToken.Claims.FirstOrDefault(c => c.Type is "nameid" or ClaimTypes.NameIdentifier or "sub");
+            deviceId = deviceClaim?.Value ?? "Unknown";
+        }
+
         try
         {
-            var principal = new JwtSecurityTokenHandler().ValidateToken(token, new TokenValidationParameters
+            TokenHandler.ValidateToken(token, new TokenValidationParameters
             {
                 ValidateIssuerSigningKey = true,
                 IssuerSigningKey = new SymmetricSecurityKey(_keyBytes),
@@ -28,13 +45,26 @@ public class JwtValidator(
                 ClockSkew = TimeSpan.Zero
             }, out _);
 
-            deviceBarcode = principal.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? "Unknown";
-
-            logger.LogInformation("[SUCCESS] Token Validated for Device: {DeviceID}", deviceBarcode);
+            logger.LogInformation("[SUCCESS] Token Validated for Device: {DeviceID}", deviceId);
+            return new ValidationResult(deviceId, IsSuccess: true, Reason: "Success");
+        }
+        catch (SecurityTokenExpiredException)
+        {
+            logger.LogInformation("[FAILED] Token expired. Request rejected.");
+            return new ValidationResult(deviceId, IsSuccess: false,
+                Reason: "Lifetime validation failed. The token is expired.");
+        }
+        catch (SecurityTokenSignatureKeyNotFoundException)
+        {
+            logger.LogInformation("[FAILED] Token Invalid. Request rejected.");
+            return new ValidationResult(deviceId, IsSuccess: false,
+                Reason: "Signature validation failed. The token's kid is missing.");
         }
         catch (Exception ex)
         {
-            logger.LogWarning("[FAILED] Token Validation failed. Reason: {Reason}", ex.Message);
+            logger.LogWarning("[FAILED] Validation failed for Device: {DeviceID}. Reason: {Reason}", deviceId,
+                ex.Message);
+            return new ValidationResult(deviceId, IsSuccess: false, Reason: ex.Message);
         }
     }
 }

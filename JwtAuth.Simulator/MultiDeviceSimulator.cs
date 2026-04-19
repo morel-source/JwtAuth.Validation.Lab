@@ -1,58 +1,77 @@
 using System.Net.Sockets;
 using System.Text;
 using JwtAuth.Shared;
-using JwtAuth.Shared.Manager;
+using JwtAuth.Simulator.Scenarios;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
 namespace JwtAuth.Simulator;
 
-public class MultiDeviceSimulator(
+public sealed class MultiDeviceSimulator(
     ILogger<MultiDeviceSimulator> logger,
     IOptions<TcpOptions> tcpOptions,
-    IJwtTokenManager tokenManager) : BackgroundService
+    IEnumerable<ITokenScenario> tokenScenarios
+) : BackgroundService
 {
+    private readonly SemaphoreSlim _connectionSemaphore = new(100);
+
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         var devices = new List<Task>();
 
-        // create valid token devices
-        for (int i = 1; i <= 10; i++)
-            devices.Add(SimulateDevice(i, isValid: true, stoppingToken));
+        foreach (var scenario in tokenScenarios)
+        {
+            foreach (var device in scenario.GetTokenScenario())
+            {
+                devices.Add(SimulateDevice(device, stoppingToken));
+            }
+        }
 
-        // create invalid token devices
-        for (int i = 1; i <= 10; i++)
-            devices.Add(SimulateDevice(i, isValid: false, stoppingToken));
-
-        await Task.WhenAll(devices);
+        await Task.WhenAll(devices).ConfigureAwait(false);
     }
 
-    private async Task SimulateDevice(int id, bool isValid, CancellationToken cancellationToken)
+
+    private async Task SimulateDevice(DeviceDetails deviceDetails, CancellationToken cancellationToken)
     {
-        var deviceId = $"{(isValid ? "Valid" : "Invalid")}_Device_{id}";
-        
+        var random = new Random();
+
         while (!cancellationToken.IsCancellationRequested)
         {
+            await _connectionSemaphore.WaitAsync(cancellationToken).ConfigureAwait(false);
+
             try
             {
-                var token = isValid
-                    ? tokenManager.Authenticate(deviceId)
-                    : tokenManager.Authenticate(deviceBarcode: deviceId, overrideKey: "ThisIsMyWRONG_KEY_123456789012345678901");
+                using var client = new TcpClient();
+                await client.ConnectAsync(tcpOptions.Value.Host, tcpOptions.Value.ListeningPort, cancellationToken)
+                    .ConfigureAwait(false);
 
-                using var client = new TcpClient(tcpOptions.Value.Host, tcpOptions.Value.ListeningPort);
-                await using var stream = client.GetStream();
-                var data = Encoding.UTF8.GetBytes(token!);
-                await stream.WriteAsync(data, cancellationToken);
+                if (client.Connected)
+                {
+                    await using var stream = client.GetStream();
+                    var data = Encoding.UTF8.GetBytes(deviceDetails.Token);
+                    await stream.WriteAsync(data, cancellationToken).ConfigureAwait(false);
 
-                logger.LogInformation("{DeviceId} sent token.", deviceId);
+                    logger.LogInformation("{DeviceId} connected and sent token.", deviceDetails.DeviceId);
+
+                    // stay the connection open for 30 - 60 sec
+                    var stayConnectedTime = TimeSpan.FromSeconds(random.Next(30, 60));
+                    await Task.Delay(stayConnectedTime, cancellationToken).ConfigureAwait(false);
+
+                    logger.LogInformation("{DeviceId} session finished, closing connection.", deviceDetails.DeviceId);
+                }
             }
             catch (Exception ex)
             {
-                logger.LogError("Device {DeviceId} failed to connect: {Msg}", deviceId, ex.Message);
+                logger.LogError("Device {DeviceId} error: {Msg}", deviceDetails.DeviceId, ex.Message);
+            }
+            finally
+            {
+                _connectionSemaphore.Release();
             }
 
-            await Task.Delay(TimeSpan.FromSeconds(30), cancellationToken);
+            // time between the connection to new connection
+            await Task.Delay(TimeSpan.FromMinutes(1), cancellationToken).ConfigureAwait(false);
         }
     }
 }

@@ -6,19 +6,21 @@ using Microsoft.IdentityModel.Tokens;
 
 namespace JwtAuth.Shared.Manager;
 
-public class JwtTokenManager(IOptions<JwtOptions> options) : IJwtTokenManager
+public sealed class JwtTokenManager(IOptions<JwtOptions> options) : IJwtTokenManager
 {
-    public string? Authenticate(string deviceBarcode, string? overrideKey = null)
+    public string Authenticate(string deviceId, string? overrideKey = null, DateTime? expires = null,
+        DateTime? notBefore = null)
     {
         var key = overrideKey ?? options.Value.Key;
         var keyBytes = Encoding.ASCII.GetBytes(key);
         var tokenHandler = new JwtSecurityTokenHandler();
         var tokenDescriptor = new SecurityTokenDescriptor
         {
-            Subject = new ClaimsIdentity([new Claim(ClaimTypes.NameIdentifier, deviceBarcode)]),
-            Expires = DateTime.UtcNow.AddMinutes(1),
-            SigningCredentials = new SigningCredentials(new SymmetricSecurityKey(keyBytes),
-                SecurityAlgorithms.HmacSha256Signature)
+            Subject = new ClaimsIdentity([new Claim(type: "nameid", deviceId)]),
+            Expires = expires ?? DateTime.UtcNow.AddHours(1),
+            NotBefore = notBefore ?? DateTime.UtcNow,
+            SigningCredentials = new SigningCredentials(
+                new SymmetricSecurityKey(keyBytes), SecurityAlgorithms.HmacSha256Signature)
         };
         return tokenHandler.WriteToken(tokenHandler.CreateToken(tokenDescriptor));
     }
